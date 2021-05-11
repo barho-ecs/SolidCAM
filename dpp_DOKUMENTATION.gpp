@@ -1,0 +1,1203 @@
+; -----------------------------------------------------------------
+; status               : closed  
+; -----------------------------------------------------------------
+; customer             : DEMO
+; machine              : 
+; typ                  : 3 axis 
+; controller           : Heidenhain iTNC530  
+; SolidCAM             : SC 2010 / IC 2011
+; -----------------------------------------------------------------
+; specials             : Cycle 32 (tolerance) for 3D- and HSM-jobs
+;                      : parametric feed
+;                      : 3D compensation for 5X-Sim.- and HSS-Jobs
+;                      :
+; -----------------------------------------------------------------
+; machine_options      : mit_PRESET_Tabelle (logical) ; with preset_table
+;                      :
+; -----------------------------------------------------------------
+; job_options          : M0_STOPP LOGICAL        (@end_of_job)
+;                      : ZUSAETZL_M_CODE INTEGER (@start_of_job)
+;                      : M120_LA (integer)       (look ahead function)
+;                      : Toleranz_Zykl32 numeric   ; for cycle 32 tolerance
+;                      : HSC_MODE integer          ; for cycle 32 tolerance
+;                      : 
+; -----------------------------------------------------------------
+; revised as standard
+; Sept 2009: revised for SC 2009
+; Jan  2010: added first_rapid_move in @line for HSS approach "with safety" or "direct"
+; Aug  2010: added parametric feed
+; Dez  2010: revised for SC 2010, added 3D compensation
+
+
+@init_post
+    global string  tool_diameter_f vector_f comp ud_spin_dir inc_letter plane_letter spin_f r_file_name 
+    global numeric save_feed save_spin X_value_M91 Y_value_M91 ud_save_spin<<254>> 
+    global logical comp_used m_feed_flag first_rapid_move M120_LA_flag ud_chamfer_flag
+    global logical change_tool_flag change_tool_flag2 ud_proc_used ud_3D_comp_flag TOOL_DEF
+    
+    ;parametric feed
+    global string  feed_out
+    global numeric ud_save_z_feed
+    global logical Parametr_Vorschub
+    
+
+;   Non GPPL variables
+    Parametr_Vorschub = true
+    TOOL_DEF          = false
+    X_value_M91       = 0    ; X-value for retreat at program end concerning the maching coordinate system (M91)
+    Y_value_M91       = 0    ; Y-value for retreat at program end concerning the maching coordinate system (M91)
+
+    ; GPPL variables
+    numeric_def_f   = '5.4/3(P)'
+    integer_def_f   = '5.0(PD)'
+    gcode_f         = '2/2.0(P)'
+    mcode_f         = '2/2.0(P)'
+    spin_f          = '5.0(P)'
+    xpos_f          = '+5.4/3(P)'
+    ypos_f          = '+5.4/3(P)'
+    zpos_f          = '+5.4/3(P)'
+    feed_f          = '4.0(P)'
+    tool_diameter_f = '5.3(P)'
+    vector_f        = '+5.7/7(P)'
+    blknum_f        = '4.0(DP)'
+    blknum_gen      = true
+    blknum_exist    = true
+    BLKNUM_LETTER   = ''
+    blknum          = 1
+    blknum_delta    = 1
+    blknum_max      = 99999999
+    
+    
+;   trace "all ":5
+
+endp
+
+;-------------------
+
+@start_of_file
+   
+;   {nl,'!!make dir =' path '!!' }
+   call @udr_del_file_name_ext
+   
+   {'0 BEGIN PGM 'r_file_name ' MM'}
+   call @udr_blk_form
+   call @udr_head
+   
+;   {nb,'; USED TOOLS:'}
+   {nb,'; VERWENDETE WERKZEUGE:'}
+          
+endp
+
+;-------------------
+
+@start_program
+
+;   {nb,'* OPERATIONS:'}
+   {nb,'* WERKZEUGE/JOBS:'}
+       
+endp
+
+;-------------------
+
+@end_program
+
+;   {nb,'L M140 MB MAX'}
+;   call @udr_retreat_M91
+   {nb,'M30'}
+   
+   if ud_proc_used eq true
+;      {nb,'* CONTOURS/DRILL-POS:'}
+      {nb,'* KONTUREN/BOHRPOSITIONEN'}
+   endif
+    
+   M120_LA_flag = false
+    
+endp
+
+;-------------------
+
+@end_of_file
+
+   {nb,'END PGM 'r_file_name, ' MM'}
+   
+endp
+
+;-------------------
+
+@relative_mode
+   
+   inc_letter = 'I'
+
+endp
+
+;-------------------
+
+@absolute_mode
+   
+   inc_letter = ' '
+   
+endp
+
+;-------------------
+
+@machine_plane
+
+   if machine_plane eq XY
+      plane_letter = 'Z'
+   else
+      print 'Falsche Ebene gewaehlt!'
+;      {nb,'M0 ; Wrong working-plane used - please change it to XY!'}
+      {nb,'M0 ; FALSCHE EBENE GEWAEHLT!'}
+   endif
+	
+endp
+
+;-------------------
+
+@job_plane
+endp
+
+;-------------------
+
+@call_proc
+
+   {nb,'CALL LBL 'label}
+   if proc_count gt 1 then
+      {'    REP 'proc_count '/' proc_count}
+   endif
+   
+   ud_save_spin<<label>> = save_spin
+   ud_proc_used = true
+      
+endp
+
+;-------------------
+
+@proc
+    
+   {nb,'*   - 'upper(job_name)}
+   {nb,'LBL 'label,' '}
+   
+   save_spin = ud_save_spin<<label>>
+    
+endp
+
+;-------------------
+
+@end_proc
+
+   if M120_LA_flag eq true
+      {nb,'M120'}           ; Abwahl
+      M120_LA_flag = false
+   endif
+   
+   {nb,'LBL 0'}
+   
+endp
+
+;-------------------
+
+@loop
+   
+   {nb,'LBL 'label}
+   
+endp
+
+;-------------------
+
+@end_loop
+
+   loop_count = loop_count-1
+   {nb,'CALL LBL 'label, ' REP 'loop_count '/' loop_count}
+     
+endp
+
+;-------------------
+
+@def_tool
+ 
+   {nb,'; '}
+   call @udr_msg_tool
+    
+endp
+
+;-------------------
+
+@rapid_move
+
+   if first_rapid_move eq true
+      if inc_letter ne 'I'
+;         {nb,'L Z'tool_start_plane:zpos_f ' FMAX'}
+         {nb,'L X'xpos ' Y'ypos ' FMAX'}
+         if drill_type ne Einlipp241
+            {' M'ud_spin_dir}
+         endif
+         {nb,'L Z'zpos}
+      else
+         {nb,'L IX'xpos ' IY'ypos ' FMAX'}
+         if drill_type ne Einlipp241
+            {' M'ud_spin_dir}
+         endif
+         {nb,'L IZ'zpos}
+      endif
+   else
+      if ud_3D_comp_flag eq true  ;=> vector output
+         {nb,'LN X'xpos, ' Y'ypos, ' Z'zpos}   	
+         {' NX'x_surface_normal:vector_f, ' NY'y_surface_normal:vector_f, ' NZ'z_surface_normal:vector_f}
+      else
+         if inc_letter ne 'I'
+            {nb,'L'[' X'xpos],[' Y'ypos],[' Z'zpos]}
+         else
+            {nb,'L'[' IX'xpos],[' IY'ypos],[' IZ'zpos]}
+         endif
+      endif
+   endif
+   
+   if comp_used
+      {' 'comp}
+   endif
+   comp_used = false
+   
+   {' FMAX'}
+   
+   if first_rapid_move eq true and drill_type ne Einlipp241
+      call @udr_cooling
+   endif
+   
+   save_feed = 300000
+   first_rapid_move = false
+   
+endp
+
+;-------------------
+
+@line
+
+   if first_rapid_move eq true  ;for HSS approach "with safety" or "direct"
+      {nb,'L M'ud_spin_dir}
+      call @udr_cooling
+      first_rapid_move = false
+      change(xpos) = true
+      change(ypos) = true
+   endif
+
+   if ud_3D_comp_flag eq true     ;=> vector output
+      {nb,'LN X'xpos, ' Y'ypos, ' Z'zpos}   	
+      {' NX'x_surface_normal:vector_f, ' NY'y_surface_normal:vector_f, ' NZ'z_surface_normal:vector_f} 
+   else
+      if inc_letter ne 'I'
+         {nb,'L'[' X'xpos],[' Y'ypos],[' Z'zpos]}
+      else
+         {nb,'L'[' IX'xpos],[' IY'ypos],[' IZ'zpos]}
+      endif
+   endif
+   
+   if comp_used
+      {' ' comp}
+      if M120_LA ne 0
+         M120_LA_flag = true
+      endif
+   endif
+   comp_used = false
+   
+   if Parametr_Vorschub eq true
+      call @udr_parametric_feed
+   else
+      call @udr_print_feed
+   endif
+   
+   if M120_LA_flag eq true and comp ne 'R0'
+      {' M120 LA' M120_LA} 
+      M120_LA_flag = false
+   endif
+    
+endp
+
+;-------------------
+
+@arc
+  
+   if inc_letter ne 'I'
+      {nb,'CC X'xcenter:xpos_f,' Y'ycenter:xpos_f}
+   else
+      {nb,'CC IX'xcenter_rel:xpos_f,' IY'ycenter_rel:xpos_f}   
+   endif
+
+   if change(zpos) eq false and arc_size ne 360
+      if inc_letter ne 'I'
+         {nb,'C X'xpos' Y'ypos}
+      else
+         {nb,'C IX'xpos' IY'ypos}         
+      endif
+   else
+      if arc_direction eq CW
+         arc_size = arc_size * -1
+      endif
+      {nb,'CP IPA'arc_size:xpos_f}
+      if change(zpos) eq true
+         if inc_letter ne 'I'
+            {' IZ'(zpos-zstart):xpos_f}
+         else
+            {' IZ'(zpos):xpos_f}      
+         endif
+      endif
+   endif
+
+
+;   if change(zpos) eq false
+;      if inc_letter ne 'I'
+;         {nb,'C X'xpos' Y'ypos}
+;      else
+;         {nb,'C IX'xpos' IY'ypos}         
+;      endif
+;   else
+;      if arc_direction eq CW
+;         arc_size = arc_size * -1
+;      endif
+;      if inc_letter ne 'I'
+;         {nb,'CP IPA'arc_size:xpos_f,' IZ'(zpos-zstart):xpos_f}
+;      else
+;         {nb,'CP IPA'arc_size:xpos_f,' IZ'(zpos):xpos_f}      
+;      endif
+;   endif
+   
+   if arc_direction eq CW
+      {' DR-'}
+   else
+      {' DR+'}
+   endif
+   
+   if comp_used
+      {' 'comp}
+   endif
+   comp_used = false
+   
+   if Parametr_Vorschub eq true
+      call @udr_parametric_feed
+   else
+      call @udr_print_feed
+   endif
+
+endp
+
+;-------------------
+
+@compensation
+
+   if side eq COMP_LEFT
+      comp = 'RL'
+   endif
+   if side eq COMP_RIGHT
+      comp = 'RR'
+   endif
+   if side eq COMP_OFF
+      comp = 'R0'
+   endif
+   comp_used = true
+    
+endp
+
+;-------------------
+
+@compensation_h
+
+    if offset_height eq tool_number and change_tool_flag2 eq false
+       {nb,'TOOL CALL 'tool_number ' Z     ;1. SCHNEIDE'}
+    endif
+    if offset_height ne tool_number
+       {nb,'TOOL CALL 'tool_number '.1 Z     ;2. SCHNEIDE'}
+    endif
+    change_tool_flag2 = false
+    
+endp
+
+;-------------------
+
+@compensation_3d 
+
+;==> type_offset_3D:tool_tip = 0
+;==> type_offset_3D:tool_center = 1
+;==> type_offset_3D:off = 2
+
+   if type_offset_3D eq 2 ;off
+      ud_3D_comp_flag = false
+   else
+      ud_3D_comp_flag = true
+   endif
+   
+endp
+
+;-------------------
+
+@change_ref_point
+
+    if ref_point_init eq false
+       {nb,'CYCL DEF 7.0 NULLPUNKT'}
+       {nb,'CYCL DEF 7.1 IX'xhome}
+       {nb,'CYCL DEF 7.2 IY'yhome}
+       {nb,'CYCL DEF 7.3 IZ'zhome}
+    else
+       {nb,'CYCL DEF 7.0 NULLPUNKT'}
+       {nb,'CYCL DEF 7.1 X+0.000'}
+       {nb,'CYCL DEF 7.2 Y+0.000'}
+       {nb,'CYCL DEF 7.3 Z+0.000'}
+    endif
+    
+endp
+
+;-------------------
+
+@home_number
+
+   if mit_PRESET_Tabelle eq true
+      {nb,'CYCL DEF 247 BEZUGSPUNKT SETZEN ~'}
+      {nb,'Q339=+'home_number'    ;BEZUGSPUNKT-NUMMER'}
+   endif
+   
+endp
+
+;-------------------
+
+@home_data
+endp
+
+;-------------------
+
+@rotate
+
+   if rotate_cancel
+      {nb,'CYCL DEF 10.0 DREHUNG'}
+      {nb,'CYCL DEF 10.1 ROT 0.000'}
+   else
+      {nb,'CYCL DEF 10.0 DREHUNG '}
+      {nb,'CYCL DEF 10.1 IROT 'angle:xpos_f}
+   endif
+    
+endp
+
+;-------------------
+
+@change_tool
+
+   if !first_tool
+;      {nb,'M9'}
+   endif
+   
+   {nb,'* '}
+   call @udr_msg_tool
+   
+   if tool_id_number ne 0
+      {nb,'TOOL CALL 'tool_id_number' 'plane_letter}
+   else
+      {nb,'TOOL CALL 'tool_number' 'plane_letter} 
+   endif
+   call @start_tool
+   
+   if TOOL_DEF eq true and next_tool_number ne tool_number
+      {nb,'TOOL DEF 'next_tool_number}
+   endif
+
+   comp = 'R0'
+   comp_used = true
+   change_tool_flag = true
+   change_tool_flag2 = true
+    
+endp
+
+;-------------------
+
+@message
+endp
+
+;-------------------
+
+@drill
+
+   call @rapid_move
+
+   depth = drill_depth - safety
+  
+   if down_step eq 0
+      down_step = depth
+   endif
+  
+   if Q208_Vorschub_Rueckzug eq 0
+      Q208_Vorschub_Rueckzug = z_feed
+   endif
+   
+   if tool_direction eq CCW
+      tool_drill_lead = tool_drill_lead * -1
+   endif
+  
+   if drill_type eq bohr200
+      {nb'CYCL DEF 200 BOHREN ~'}
+      {nl'   Q200='safety,' ;SICHERHEITS-ABST. ~'}
+      {nl'   Q201=-'depth,' ;TIEFE ~'}
+      {nl'   Q206='feed,' ;VORSCHUB TIEFENZ. ~'}
+      {nl'   Q202='down_step,' ;ZUSTELL-TIEFE ~'}
+      {nl'   Q210='Q210_Verweilzeit_oben:'5.1/3(P)',' ;VERWEILZEIT OBEN ~'}
+      {nl'   Q203='(drill_lower_z + depth):zpos_f,' ;KOOR. OBERFLAECHE ~'}
+      {nl'   Q204='(abs((drill_lower_z + depth) - drill_clearance_z)):zpos_f,' ;2. SICHERHEITS-ABST ~'}
+      {nl'   Q211='Q211_Verweilzeit_unten:'5.1/3(P)',' ;VERWEILZEIT UNTEN '}
+   endif
+   
+   
+   if drill_type eq reib201
+      {nb'CYCL DEF 201 REIBEN ~'}
+      {nl'   Q200='safety,' ;SICHERHEITS-ABST. ~'}
+      {nl'   Q201=-'depth,' ;TIEFE ~'}
+      {nl'   Q206='feed,' ;VORSCHUB TIEFENZ. ~'}
+      {nl'   Q211='Q211_Verweilzeit_unten:'5.1/3(P)',' ;VERWEILZEIT UNTEN ~'}
+      {nl'   Q208='Q208_Vorschub_Rueckzug,' ;VORSCHUB RUECKZUG ~'}
+      {nl'   Q203='(drill_lower_z + depth):zpos_f,' ;KOOR. OBERFLAECHE ~'}
+      {nl'   Q204='(abs((drill_lower_z + depth) - drill_clearance_z)):zpos_f,' ;2. SICHERHEITS-ABST'}
+   endif
+   
+   
+   if drill_type eq ausd202
+      {nb'CYCL DEF 202 AUSDREHEN ~'}
+      {nl'   Q200='safety,' ;SICHERHEITS-ABST. ~'}
+      {nl'   Q201=-'depth,' ;TIEFE ~'}
+      {nl'   Q206='feed,' ;VORSCHUB TIEFENZ. ~'}
+      {nl'   Q211='Q211_Verweilzeit_unten:'5.1/3(P)',' ;VERWEILZEIT UNTEN ~'}
+      {nl'   Q208='Q208_Vorschub_Rueckzug,' ;VORSCHUB RUECKZUG ~'}
+      {nl'   Q203='(drill_lower_z + depth):zpos_f,' ;KOOR. OBERFLAECHE ~'}
+      {nl'   Q204='(abs((drill_lower_z + depth) - drill_clearance_z)):zpos_f,' ;2. SICHERHEITS-ABST ~'}
+      {nl'   Q214='Q214_Freifahr_Richtung,' ;FREIFAHR-RICHTUNG ~'}
+      {nl'   Q336='Q336_Winkel_Spindel,' ;WINKEL SPINDEL'}
+   endif
+   
+   
+   if drill_type eq Bohr203
+      {nb'CYCL DEF 203 UNIVERSAL-BOHREN ~'}
+      {nl'   Q200='safety,' ;SICHERHEITS-ABST. ~'}
+      {nl'   Q201=-'depth,' ;TIEFE ~'}
+      {nl'   Q206='feed,' ;VORSCHUB TIEFENZ. ~'}
+      {nl'   Q202='down_step,' ;ZUSTELL-TIEFE ~'}
+      {nl'   Q210='Q210_Verweilzeit_oben:'5.1/3(P)',' ;VERWEILZEIT OBEN ~'}
+      {nl'   Q203='(drill_lower_z + depth):zpos_f,' ;KOOR. OBERFLAECHE ~'}
+      {nl'   Q204='(abs((drill_lower_z + depth) - drill_clearance_z)):zpos_f,' ;2. SICHERHEITS-ABST ~'}
+      {nl'   Q212='Q212_Abnahmebetrag,' ;ABNAHMEBETRAG ~'}
+      {nl'   Q213='Q213_Anz_Spanbrueche,' ;ANZ. SPANBRUECHE ~'}
+      {nl'   Q205='Q205_Min_Zustell_Tiefe,' ;MIN. ZUSTELL-TIEFE ~'}
+      {nl'   Q211='Q211_Verweilzeit_unten:'5.1/3(P)',' ;VERWEILZEIT UNTEN ~'}
+      {nl'   Q208='Q208_Vorschub_Rueckzug,' ;VORSCHUB RUECKZUG ~'}
+      {nl'   Q256='Q256_RZ_bei_Spanbruch,' ;RZ BEI SPANBRUCH'}
+   endif
+   
+   
+   if drill_type eq Bohr205
+      {nb'CYCL DEF 205 UNIVERSAL-TIEFBOHREN ~'}
+      {nl'   Q200='safety,' ;SICHERHEITS-ABST. ~'}
+      {nl'   Q201=-'depth,' ;TIEFE ~'}
+      {nl'   Q206='feed,' ;VORSCHUB TIEFENZ. ~'}
+      {nl'   Q202='down_step,' ;ZUSTELL-TIEFE ~'}
+      {nl'   Q203='(drill_lower_z + depth):zpos_f,' ;KOOR. OBERFLAECHE ~'}
+      {nl'   Q204='(abs((drill_lower_z + depth) - drill_clearance_z)):zpos_f,' ;2. SICHERHEITS-ABST ~'}
+      {nl'   Q212='Q212_Abnahmebetrag,' ;ABNAHMEBETRAG ~'}
+      {nl'   Q205='Q205_Min_Zustell_Tiefe,' ;MIN. ZUSTELL-TIEFE ~'}
+      {nl'   Q258='Q258_Vorhalteabstand_oben,' ;VORHALTEABSTAND OBEN ~'}
+      {nl'   Q259='Q259_Vorhalteabstand_unten,' ;VORHALTEABST. UNTEN ~'}
+      {nl'   Q257='Q257_Bohrtiefe_Spanbruch,' ;BOHRTIEFE SPANBRUCH ~'}
+      {nl'   Q256='Q256_RZ_bei_Spanbruch,' ;RZ BEI SPANBRUCH ~'}
+      {nl'   Q211='Q211_Verweilzeit_unten:'5.1/3(P)',' ;VERWEILZEIT UNTEN ~'}
+      {nl'   Q379='Q379_Startpunkt' ;STARTPUNKT ~'}
+      {nl'   Q253='Q253_Vorschub_vorpos' ;VORSCHUB VORPOS.'}
+   endif
+   
+   
+   ;  if drill_type eq gew206
+   ;     {nb'CYCL DEF 206 GEWINDEBOHREN NEU ~'}
+   ;     {nl'   Q200='safety,' ;SICHERHEITS-ABST. ~'}
+   ;     {nl'   Q201=-'depth,' ;TIEFE ~'}
+   ;     {nl'   Q206='feed,' ;VORSCHUB TIEFENZ. ~'}
+   ;     {nl'   Q211='Q211_Verweilzeit_unten:'5.1/3(P)',' ;VERWEILZEIT UNTEN ~'}
+   ;     {nl'   Q203='(drill_lower_z + depth):zpos_f,' ;KOOR. OBERFLAECHE ~'}
+   ;     {nl'   Q204='(abs((drill_lower_z + depth) - drill_clearance_z)):zpos_f,' ;2. SICHERHEITS-ABST'}
+   ; endif
+   
+   
+   if drill_type eq gew207
+      {nb'CYCL DEF 207 GEW.-BOHREN GS NEU ~'}
+      {nl'   Q200='safety,' ;SICHERHEITS-ABST. ~'}
+      {nl'   Q201=-'depth,' ;GEWINDETIEFE ~'}
+      {nl'   Q239='tool_drill_lead,' ;GEWINDESTEIGUNG ~'}
+      {nl'   Q203='(drill_lower_z + depth):zpos_f,' ;KOOR. OBERFLAECHE ~'}
+      {nl'   Q204='(abs((drill_lower_z + depth) - drill_clearance_z)):zpos_f,' ;2. SICHERHEITS-ABST'}
+   endif
+   
+   
+   if drill_type eq Bohr208
+      {nb'CYCL DEF 208 BOHRFRAESEN ~'}
+      {nl'   Q200='safety,' ;SICHERHEITS-ABST. ~'}
+      {nl'   Q201=-'depth,' ;TIEFE ~'}
+      {nl'   Q206='feed,' ;VORSCHUB TIEFENZ. ~'}
+      {nl'   Q334='down_step,' ;ZUSTELL-TIEFE ~'}
+      {nl'   Q203='(drill_lower_z + depth):zpos_f,' ;KOOR. OBERFLAECHE ~'}
+      {nl'   Q204='(abs((drill_lower_z + depth) - drill_clearance_z)):zpos_f,' ;2. SICHERHEITS-ABST ~'}
+      {nl'   Q335='Q335_Soll_Durchmesser,' ;SOLL-DURCHMESSER ~'}
+      {nl'   Q342='Q342_Vorgeb_Durchmesser, ' ;VORGEB. DURCHMESSER'}
+   endif
+   
+   
+   if drill_type eq gew209
+      {nb'CYCL DEF 209 GEW.-BOHREN SPANBR. ~'}
+      {nl'   Q200='safety,' ;SICHERHEITS-ABST. ~'}
+      {nl'   Q201=-'depth,' ;TIEFE ~'}
+      {nl'   Q239='tool_drill_lead,' ;GEWINDESTEIGUNG ~'}
+      {nl'   Q203='(drill_lower_z + depth):zpos_f,' ;KOOR. OBERFLAECHE ~'}
+      {nl'   Q204='(abs((drill_lower_z + depth) - drill_clearance_z)):zpos_f,' ;2. SICHERHEITS-ABST ~'}
+      {nl'   Q257='Q257_Bohrtiefe_Spanbruch,' ;BOHRTIEFE SPANBRUCH ~'}
+      {nl'   Q256='Q256_RZ_bei_Spanbruch,' ;RZ BEI SPANBRUCH ~'}
+      {nl'   Q336='Q336_Winkel_Spindel,' ;WINKEL SPINDEL'}
+   endif
+   
+   
+   if drill_type eq zentr240
+      {nb'CYCL DEF 240 ZENTRIEREN ~'}
+      {nl'   Q200='safety,' ;SICHERHEITS-ABST. ~'}
+      {nl'   Q343='Q343_Durchm_Tiefe,' ;AUSWAHL_DURCHM/TIEFE ~'}
+      {nl'   Q201=-'depth,' ;TIEFE ~'}
+      {nl'   Q344='Q344_Durchmesser,' ;DURCHMESSER ~'}
+      {nl'   Q206='feed,' ;VORSCHUB TIEFENZ. ~'}
+      {nl'   Q211='Q211_Verweilzeit_unten:'5.1/3(P)',' ;VERWEILZEIT UNTEN ~'}
+      {nl'   Q203='(drill_lower_z + depth):zpos_f,' ;KOOR. OBERFLAECHE ~'}
+      {nl'   Q204='(abs((drill_lower_z + depth) - drill_clearance_z)):zpos_f,' ;2. SICHERHEITS-ABST'}
+   endif
+   
+   
+   if drill_type eq Einlipp241
+   ; Pilot-Bohrung muss vorhanden sein!
+      {nb'CYCL DEF 241 EINLIPPEN-BOHREN ~'}
+      {nl'   Q200='safety,' ;SICHERHEITS-ABST. ~'}
+      {nl'   Q201=-'depth,' ;TIEFE ~'}
+      {nl'   Q206='feed,' ;VORSCHUB TIEFENZ. ~'}
+      {nl'   Q211='Q211_Verweilzeit_unten:'5.1/3(P)',' ;VERWEILZEIT UNTEN ~'}
+      {nl'   Q203='(drill_lower_z+ depth):zpos_f,' ;KOOR. OBERFLAECHE ~'}
+      {nl'   Q204='(abs((drill_lower_z + depth) - drill_clearance_z)):zpos_f,' ;2. SICHERHEITS-ABST ~'}
+      {nl'   Q379='Q379_Vertiefter_Startpkt,' ;STARTPUNKT ~'}
+      {nl'   Q253='Q253_Vorschub_Vorpos,' ;VORSCHUB VORPOS. ~'}
+      {nl'   Q208='Q208_Vorschub_Rueckzug,' ;VORSCHUB RUECKZUG ~'}
+      {nl'   Q426='Q426_Drehrich_einf_ausf,' ;SP.-DREHRICHTUNG ~'} 
+      if Q426_Drehrich_einf_ausf ne 3 or Q426_Drehrich_einf_ausf ne 4 or Q426_Drehrich_einf_ausf ne 5
+         print 'Bitte beim Einlippen-Bohren in Zyklus-Daten bei Parameter Q426_Drehrich_einf_ausf    3, 4 oder 5 eingeben!'
+      endif
+      {nl'   Q427='Q427_Drehzahl_einf_ausf,' ;DREHZAHL EIN-/AUSF. ~'} 
+      {nl'   Q428='spin,' ;DREHZAHL BOHREN ~'}
+      {nl'   Q429=8 ;KUEHLUNG EIN ~'}
+      {nl'   Q430=9 ;KUEHLUNG AUS'}
+   endif
+   
+   
+   if drill_type eq gew262
+      {nb'CYCL DEF 262 GEWINDEFRAESEN ~'}
+      {nl'   Q335='Q335_Soll_Durchmesser,' ;SOLL-DURCHMESSER ~'}
+      {nl'   Q239='tool_drill_lead,' ;GEWINDESTEIGUNG ~'}
+      {nl'   Q201=-'depth,' ;TIEFE ~'}
+      {nl'   Q355='Q355_Nachsetzen,' ;NACHSETZEN ~'}  
+      {nl'   Q253='Q253_Vorschub_vorpos,' ;VORSCHUB VORPOS. ~'}
+      if Q351_Fraesart eq -1
+         {nl'   Q351=-1',' ;FRAESART ~'}
+      else
+         {nl'   Q351=+1',' ;FRAESART ~'}          
+      endif
+      {nl'   Q200='safety,' ;SICHERHEITS-ABST. ~'}
+      {nl'   Q203='(drill_lower_z + depth):zpos_f,' ;KOOR. OBERFLAECHE ~'}
+      {nl'   Q204='(abs((drill_lower_z + depth) - drill_clearance_z)):zpos_f,' ;2. SICHERHEITS-ABST ~'}
+      {nl'   Q207='feed,' ;VORSCHUB FRAESEN '}
+   endif
+   
+   
+   if drill_type eq gew267
+      {nb'CYCL DEF 267 AUSSENGEWINDE FR. ~'}
+      {nl'   Q335='Q335_Soll_Durchmesser,' ;SOLL-DURCHMESSER ~'}
+      {nl'   Q239='tool_drill_lead,' ;GEWINDESTEIGUNG ~'}
+      {nl'   Q201=-'depth,' ;TIEFE ~'}
+      {nl'   Q355=',Q355_Nachsetzen,' ;NACHSETZEN ~'}  
+      {nl'   Q253='Q253_Vorschub_vorpos,' ;VORSCHUB VORPOS. ~'}
+      if Q351_Fraesart eq -1
+         {nl'   Q351=-1',' ;FRAESART ~'}
+      else
+         {nl'   Q351=+1',' ;FRAESART ~'}          
+      endif
+      {nl'   Q200='safety,' ;SICHERHEITS-ABST. ~'}
+      {nl'   Q358='Q358_Tiefe_stirnseitig,' ;TIEFE STIRNSEITIG ~'}
+      {nl'   Q359='Q359_Versatz_stirnseitig,' ;VERSATZ STIRNSEITIG ~'}
+      {nl'   Q203='(drill_lower_z + depth):zpos_f,' ;KOOR. OBERFLAECHE ~'}
+      {nl'   Q204='(abs((drill_lower_z + depth) - drill_clearance_z)):zpos_f,' ;2. SICHERHEITS-ABST ~'}
+      {nl'   Q254='Q254_Vorschub_Senken,' ;VORSCHUB SENKEN ~'}
+      {nl'   Q207='feed:integer_def_f,' ;VORSCHUB FRAESEN'}
+   endif
+
+endp
+
+;-------------------
+
+@drill_point
+
+   if first_drill eq true
+      change(xpos) = true   
+      change(ypos) = true
+   endif
+
+   {nb,'L' [' X'xpos], [' Y'ypos], [' Z'zpos], ' R0 FMAX M99'}
+     
+endp
+
+;-------------------
+
+@end_drill
+   
+   {nb,'L Z'drill_clearance_z:zpos_f, ' R0 FMAX'}
+   
+endp
+
+;-------------------
+
+@mirror
+
+   {nb,'CYCL DEF 8.0 SPIEGELN'}
+   {nb,'CYCL DEF 8.1 '}
+   if mirror_type eq MIRROR_X then
+      {' X'}
+   endif
+   if mirror_type eq MIRROR_Y then
+      {' Y'}
+   endif
+   if mirror_type eq MIRROR_XY then
+      {' X Y'}
+   endif
+        
+endp
+
+;-------------------
+
+@start_of_job
+
+   if is_chamfer eq true    ; Anfasen mit Schneidendem Durchmesser <> Wkz-Dm.   
+      if change_tool_flag eq false or TOOL_DEF eq true
+         if tool_id_number ne 0
+            {nb,'TOOL CALL 'tool_id_number' 'plane_letter}
+         else
+            {nb,'TOOL CALL 'tool_number' 'plane_letter} 
+         endif
+      endif
+      {' DR-'((tool_diameter-cutting_diameter)/2):tool_diameter_f}   
+      {' ;SCHNEIDENDER DURCHMESSER = 'cutting_diameter:tool_diameter_f}
+      ud_chamfer_flag = true
+   endif
+   
+   {nb,'*   - 'upper(job_name)}
+   if msg ne  ''
+      {nb,'; 'upper(msg)}
+   endif
+   
+   if Parametr_Vorschub eq true and left(job_type,6) ne 'spiral'
+      if job_type ne 'drill'    
+         if HSM_job eq true
+            {nb,'FN0: Q1='feed_rapid:integer_def_f,' ; EIL-VORSCHUB'}  
+            {nb,'FN0: Q2='feed_rate:integer_def_f,' ; XY-VORSCHUB'}       
+            {nb,'FN0: Q3='feed_ramp_down:integer_def_f,' ; ABWAERTS-VORSCHUB'}
+            {nb,'FN0: Q4='feed_ramp_up:integer_def_f,' ; AUFWAERTS-VORSCHUB'}
+         else
+            if left(job_type,3) eq 'hss'
+               {nb,'FN0: Q1=30000 ; EIL-VORSCHUB'}  
+               {nb,'FN0: Q2='feed_rate:integer_def_f,' ; XY-VORSCHUB'}  
+               {nb,'FN0: Q3='z_feed:integer_def_f,' ; Z-VORSCHUB'}
+               {nb,'FN0: Q4='finish_feed:integer_def_f,' ; RUECKZUG-VORSCHUB'}
+               ud_save_z_feed = z_feed
+            else
+               if job_type eq 'face_milling'  ;Planfraesen
+                  {nb,'FN0: Q1='feed_link:integer_def_f,' ; LINK-VORSCHUB'}
+               endif                       
+               {nb,'FN0: Q2='feed_rate:integer_def_f,' ; XY-VORSCHUB'}  
+               {nb,'FN0: Q3='z_feed:integer_def_f,' ; Z-VORSCHUB'}
+               {nb,'FN0: Q5='finish_feed:integer_def_f,' ; SCHLICHT-VORSCHUB'}
+            endif
+         endif
+      endif
+   endif
+      
+   if left(job_type,3) eq '3-d' or HSM_job eq true or left(job_type,3) eq 'hss' or left(job_type,6) eq 'spiral'
+      {nb,'CYCL DEF 32.0 TOLERANZ'}
+      if Toleranz_Zykl32 eq 0
+         {nb,'CYCL DEF 32.1 T0.01'}
+      else
+         {nb,'CYCL DEF 32.1 T'Toleranz_Zykl32}
+      endif
+      if HSC_MODE eq 0
+         {nb,'CYCL DEF 32.2 HSC-MODE:0'} ; TA1.5'}
+      else
+         {nb,'CYCL DEF 32.2 HSC-MODE:1'} ; TA1.5'}
+      endif
+   endif
+   
+   call @udr_additional_mcode
+   
+   first_rapid_move = true 
+   
+endp
+
+;-------------------
+
+@end_of_job
+   
+   call @udr_cooling
+   
+   if HSM_job eq true or left(job_type,3) eq '3-d' or left(job_type,3) eq 'hss' or left(job_type,6) eq 'spiral'		
+      {nb,'CYCL DEF 32.0 TOLERANZ'} 		; ; Abwahl Zyklus Toleranz
+      {nb,'CYCL DEF 32.1'}
+   endif
+   
+   if M120_LA_flag eq true
+      {nb,'M120'}           ; Abwahl
+      M120_LA_flag = false
+   endif
+     
+   if ud_chamfer_flag eq true
+      {nb,'TOOL CALL 'tool_number' 'plane_letter' DR+0  ;RESET DR'} 
+      ud_chamfer_flag = false
+   endif
+     
+   if M0_STOPP eq true
+      {nb,'L M0'}
+   endif
+   
+   change_tool_flag = false
+   
+endp
+
+;-------------------
+
+@call_simple_proc
+
+   active(message) = FALSE
+   active(parm1)   = FALSE
+   active(parm2)   = FALSE
+   active(parm3)   = FALSE
+   proc_count      = 1
+   call @call_proc
+
+endp
+
+;-------------------
+
+@m_feed_spin
+
+   m_feed_flag = true
+   
+   if save_spin <> spin
+      if tool_id_number ne 0
+         {nb,'TOOL CALL 'tool_id_number' 'plane_letter}
+      else
+         {nb,'TOOL CALL 'tool_number' 'plane_letter} 
+      endif
+      call @start_tool
+   endif  
+     
+endp
+
+;-------------------
+
+@start_tool
+
+   if tool_direction eq CW then
+      ud_spin_dir = '3'
+   else             
+      ud_spin_dir = '4'
+   endif
+   
+   {' S'spin:spin_f}
+   save_spin = spin
+    
+endp
+
+;-------------------
+
+@line_on
+endp
+
+;-------------------
+
+@end_job_procs
+endp
+
+;-------------------
+
+@delay
+   
+   {nb,'CYCL DEF 9.0 VERWEILZEIT'}
+   {nb,'CYCL DEF 9.1 V.ZEIT 0.5'}
+
+endp
+
+;-------------------
+
+@assign_axis
+endp
+
+@round_comp
+endp
+
+@fourth_axis
+endp
+
+@rotary_info
+endp
+
+@init_cpos
+endp
+
+@call_prms
+endp
+
+@tmatrix
+endp
+
+@offset_change
+endp
+
+;-------------------
+
+@fixture_change
+
+   {nb,'* - 'upper(fixture_name)}
+   if fixture_message ne ''
+      {nb,'; 'upper(fixture_message)}
+   endif
+   
+endp
+
+;-------------------
+
+@udr_blk_form
+
+   if stock_x eq 0 and stock_y eq 0 and stock_z eq 0
+      stock_x_minus = -100
+      stock_y_minus = -100
+      stock_x_plus = 100
+      stock_y_plus = 100
+   endif
+
+   if stock_z_plus eq stock_z_minus
+      stock_z_minus = zero_plane
+      stock_z_plus = work_upper_plane
+   endif
+ 
+   {nb,'BLK FORM 0.1 Z X'stock_x_minus:xpos_f, ' Y'stock_y_minus:xpos_f, ' Z'stock_z_minus:xpos_f}
+   {nb,'BLK FORM 0.2 X'stock_x_plus:xpos_f, ' Y'stock_y_plus:xpos_f, ' Z'stock_z_plus:xpos_f}
+ 
+endp
+
+;-------------------
+
+@udr_head
+
+;   {nb,'; FILE-NAME   : 'g_file_name}
+;   {nb,'; PART-NAME   : 'upper(part_name)}
+;   {nb,'; DATE - TIME : 'date' - 'time}
+   {nb,'; PROGRAMM       : 'r_file_name}
+   {nb,'; TEIL-NAME      : 'upper(part_name)}
+   {nb,'; DATUM - UHRZEIT: 'date' - 'time}
+   
+endp
+
+;-------------------
+
+@udr_msg_tool
+
+   {'- T'tool_number' '}
+   if tool_message ne ''
+      {'- 'upper(tool_message)}
+   else
+      {'- 'upper(tool_user_type), ' D'(tool_offset*2)} ;' AUSP-L='tool_length}
+      if corner_radius ne 0
+         {' R'corner_radius}
+      endif
+   endif
+   
+   if tool_id_number ne 0
+      {' ID:'tool_id_number}
+   endif
+
+;   if msg_mill_tool1 ne ''
+;      {nb,'; 'msg_mill_tool1}
+;   endif
+;   if msg_mill_tool2 ne ''
+;      {nb,'; 'msg_mill_tool2}
+;   endif
+;   if msg_mill_tool3 ne ''
+;      {nb,'; 'msg_mill_tool3}
+;   endif
+;   if msg_mill_tool4 ne ''
+;      {nb,'; 'msg_mill_tool4}
+;   endif
+;   if msg_mill_tool5 ne ''
+;      {nb,'; 'msg_mill_tool5}
+;   endif
+    
+endp
+
+;-------------------
+
+@udr_del_file_name_ext
+
+   local integer len
+   len = strlen(g_file_name)
+   len = len-2
+   r_file_name = left(g_file_name,len)
+
+endp
+
+
+;-------------------
+
+@udr_cooling 
+
+  ;0- no action
+  ;1- on
+  ;2- off
+  
+   if flood_coolant eq 1
+      {' M8'}
+   endif
+   if flood_coolant eq 2
+      if job_type eq 'drill'
+         {nb}
+      else
+         {' '}
+      endif
+      {'M9'}
+   endif
+   
+   if mist_coolant eq true
+   endif
+   
+   if HP_flood_coolant eq true
+   endif
+   
+   if LP_flood_coolant eq true
+   endif
+  
+   if HP_through_coolant eq true
+   endif
+   
+   if LP_through_coolant eq true
+   endif
+   
+   if air_blast_coolant eq true
+   endif
+   
+   if minimum_quantity_L eq true
+      if minimum_quantity_L_val ne 0
+      endif
+   endif
+
+endp
+
+;-------------------
+
+@udr_additional_mcode
+   
+   if ZUSAETZL_M_CODE ne 0
+      {nb,'M'ZUSAETZL_M_CODE}
+   endif
+   
+endp
+
+;-------------------
+
+@udr_retreat_M91
+
+   {nb,'L Z-1.000 R0 FMAX M91'}
+   if X_value_M91 ne 0 and Y_value_M91 ne 0
+      {nb,'L X'X_value_M91:xpos_f, ' Y'Y_value_M91:ypos_f, ' R0 FMAX M91'}
+   endif
+   
+endp
+
+;-------------------
+
+@udr_print_feed
+
+   if feed <> save_feed or change(feed) eq true
+      m_feed_flag = true
+   endif
+   if m_feed_flag eq true
+      {' F'feed:feed_f}
+      m_feed_flag = false
+   endif
+   save_feed = feed
+
+endp
+
+;-------------------
+
+@udr_parametric_feed
+
+   if feed <> save_feed or change(feed) eq true
+      m_feed_flag = true
+   endif
+   
+   if m_feed_flag eq true
+      if Parametr_Vorschub eq true and left(job_type,6) ne 'spiral'
+         if HSM_job eq true
+            if feed_type eq 'feed_rate'
+               feed_out='Q2'
+            endif
+            if feed_type eq 'ramp_down_feed' 
+               feed_out='Q3'
+            endif
+            if feed_type eq 'ramp_up_feed' 
+               feed_out='Q4'
+            endif
+            if feed_type eq 'feed_rapid'
+               feed_out='Q1'
+            endif
+         else  
+            if left(job_type,3) eq 'hss' ; feed_type always feed_rate
+               if feed eq ud_save_z_feed ;z_feed  ; (because of bug in SC2008 R12 and SC2009)
+                  feed_out='Q3'
+               else
+                  if feed eq finish_feed
+                     feed_out='Q4'
+                  else
+                     feed_out='Q2'
+                  endif
+               endif
+            else    
+               if feed_type eq 'z_feed' or feed_type eq 'z_feed_safety'
+                  feed_out='Q3'
+               else
+                  if feed_type eq 'feed_link'  ;job Planfraesen
+                     feed_out='Q1'
+                  else  ; feed_type eq 'feed_rate'
+                     if feed eq finish_feed
+                        feed_out='Q5'
+                     else
+                        feed_out='Q2' 
+                     endif    
+                  endif
+               endif
+            endif
+         endif
+         {' F'feed_out}  
+      else
+         {' F'feed:feed_f}
+      endif  
+   endif
+   
+   m_feed_flag = false
+   save_feed = feed 
+      
+endp
+
+;-------------------
+
+
+
+
+
+
+
+ 
